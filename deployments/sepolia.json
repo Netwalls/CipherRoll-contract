@@ -1,0 +1,14 @@
+{
+  "network": "sepolia",
+  "chainId": "11155111",
+  "timestamp": "2026-03-15T16:27:25.137Z",
+  "deployer": "0xC023B4a500BA76934f5e0489690d108335FA7230",
+  "contracts": {
+    "CipherRollFactory": {
+      "address": "0xF8fC0B620487D19154Dc1b45b59Dc6C8AC67e664"
+    },
+    "ConfidentialPayToken": {
+      "address": "0x912db637B3caE5392a58a8E928e75ac80f6385F2"
+    }
+  }
+}
