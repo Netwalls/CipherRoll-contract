@@ -44,12 +44,14 @@ export function useFhevm() {
     (async () => {
       try {
         const { createInstance } = await import("fhevmjs");
+        // Use a local Next.js proxy to avoid CORS issues with the Zama gateway
+        const gatewayUrl = `${window.location.origin}/api/gateway/`;
         const inst = await createInstance({
           kmsContractAddress: FHEVM_CONFIG.kmsContractAddress,
           aclContractAddress: FHEVM_CONFIG.aclContractAddress,
           network: window.ethereum as Parameters<typeof createInstance>[0]["network"],
           chainId: FHEVM_CONFIG.chainId,
-          gatewayUrl: FHEVM_CONFIG.gatewayUrl,
+          gatewayUrl,
         });
         _instance = inst as unknown as FhevmInstance;
         setInstance(_instance);
