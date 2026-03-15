@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "fhevm/lib/TFHE.sol";
-import { SepoliaZamaFHEVMConfig } from "fhevm/config/ZamaFHEVMConfig.sol";
-import { ConfidentialERC20 } from "fhevm-contracts/contracts/token/ERC20/ConfidentialERC20.sol";
+import { FHE, euint64 } from "@fhevm/solidity/lib/FHE.sol";
+import { ZamaEthereumConfig } from "@fhevm/solidity/config/ZamaConfig.sol";
+import { ERC7984 } from "@openzeppelin/confidential-contracts/token/ERC7984/ERC7984.sol";
 import { Ownable2Step, Ownable } from "@openzeppelin/contracts/access/Ownable2Step.sol";
 
 /**
@@ -12,11 +12,8 @@ import { Ownable2Step, Ownable } from "@openzeppelin/contracts/access/Ownable2St
  *         All balances and transfer amounts are fully encrypted on-chain via Zama fhEVM.
  *         Only sender and recipient know exact amounts — the blockchain enforces
  *         settlement without ever exposing financial data.
- *
- * @dev Inherits fhevm-contracts/ConfidentialERC20 (ERC-7984 compliant).
- *      Adds multi-minter support so the payroll contract can fund itself.
  */
-contract ConfidentialPayToken is SepoliaZamaFHEVMConfig, Ownable2Step, ConfidentialERC20 {
+contract ConfidentialPayToken is ZamaEthereumConfig, Ownable2Step, ERC7984 {
     /// @notice Addresses authorized to call `mint()` (e.g., ConfidentialPayroll)
     mapping(address => bool) public minters;
 
@@ -26,9 +23,8 @@ contract ConfidentialPayToken is SepoliaZamaFHEVMConfig, Ownable2Step, Confident
 
     error NotMinter();
     error ZeroAddress();
-    error SupplyOverflow();
 
-    constructor() Ownable(msg.sender) ConfidentialERC20("Confidential USD", "cUSD") {}
+    constructor() Ownable(msg.sender) ERC7984("Confidential USD", "cUSD", "") {}
 
     modifier onlyMinter() {
         if (!minters[msg.sender] && msg.sender != owner()) revert NotMinter();
@@ -56,19 +52,28 @@ contract ConfidentialPayToken is SepoliaZamaFHEVMConfig, Ownable2Step, Confident
 
     /**
      * @notice Mint `amount` cUSD to `to`.
-     *         Internally encrypted — only `to` (and the contract) can see the balance.
      * @param to     Recipient (e.g., the ConfidentialPayroll contract)
      * @param amount Plaintext amount in smallest unit (6 decimals → 1e6 = 1 cUSD)
      */
     function mint(address to, uint64 amount) external onlyMinter {
         if (to == address(0)) revert ZeroAddress();
-        // Overflow guard: totalSupply is plaintext in ConfidentialERC20
-        unchecked {
-            if (_totalSupply + amount < _totalSupply) revert SupplyOverflow();
-        }
-        _unsafeMint(to, amount);
-        _totalSupply += amount;
+        euint64 encAmount = FHE.asEuint64(amount);
+        FHE.allowThis(encAmount);
+        FHE.allow(encAmount, to);
+        _mint(to, encAmount);
         emit Mint(to, amount);
+    }
+
+    // ──────────────────────────────────────────────────────────
+    //  Operator transfer (called by payroll contract)
+    // ──────────────────────────────────────────────────────────
+
+    /**
+     * @notice Transfer encrypted amount from payroll contract to employee.
+     *         Payroll contract must be set as operator before calling.
+     */
+    function payEmployee(address from, address to, euint64 amount) external onlyMinter {
+        _transfer(from, to, amount);
     }
 
     // ──────────────────────────────────────────────────────────
@@ -77,9 +82,15 @@ contract ConfidentialPayToken is SepoliaZamaFHEVMConfig, Ownable2Step, Confident
 
     /**
      * @notice Return the raw ciphertext handle for `account`'s balance.
-     *         Use with fhevmjs `instance.reencrypt()` to decrypt off-chain.
      */
-    function encryptedBalanceOf(address account) external view returns (uint256) {
-        return euint64.unwrap(balanceOf(account));
+    function encryptedBalanceOf(address account) external view returns (bytes32) {
+        return euint64.unwrap(confidentialBalanceOf(account));
+    }
+
+    /**
+     * @notice Return the encrypted balance directly.
+     */
+    function balanceOf(address account) external view returns (euint64) {
+        return confidentialBalanceOf(account);
     }
 }

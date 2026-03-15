@@ -11,7 +11,9 @@ import {
   EmpStatus, formatCUSD, encodeInviteCode, hashInviteCode,
   saveEmployeePayroll, loadEmployeePayroll,
 } from "@/lib/contracts";
-import { useFhevm } from "@/hooks/useFhevm";
+import { useFhevm, simHasSalary } from "@/hooks/useFhevm";
+
+const SIM = process.env.NEXT_PUBLIC_SIM === "true";
 import { Spinner, StatusBox } from "@/components/shared/Spinner";
 
 // ─────────────────────────────────────────────
@@ -397,6 +399,9 @@ function SalaryCard({
   const [decrypting, setDecrypting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const simSalaryAvailable = SIM && simHasSalary(payrollAddr, address);
+  const effectiveSalarySet = salarySet || simSalaryAvailable;
+
   const { data: handle } = useReadContract({
     address: payrollAddr, abi: PAYROLL_ABI, functionName: "getMySalaryHandle",
     account: address,
@@ -404,10 +409,12 @@ function SalaryCard({
   });
 
   const decrypt = async () => {
-    if (!handle) return;
+    // In SIM mode, pass 0n as handle — decryptSalary will read from localStorage
+    const h = SIM ? 0n : (handle ? BigInt(handle as string) : null);
+    if (h === null) return;
     setDecrypting(true); setError(null);
     try {
-      const val = await decryptSalary(handle as bigint, payrollAddr);
+      const val = await decryptSalary(h, payrollAddr);
       setDecrypted(formatCUSD(val));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Decryption failed");
@@ -431,7 +438,7 @@ function SalaryCard({
       </div>
 
       {/* Value display */}
-      {!salarySet ? (
+      {!effectiveSalarySet ? (
         <div style={{ padding: "24px 0", textAlign: "center" }}>
           <div style={{ fontFamily: "monospace", color: "#2a2a2a", fontSize: 32, letterSpacing: "0.15em", marginBottom: 8 }}>— — —</div>
           <div style={{ fontSize: 12, color: "#333" }}>Salary not set yet</div>
@@ -457,12 +464,12 @@ function SalaryCard({
       )}
 
       {/* Action */}
-      {salarySet && !decrypted && (
+      {effectiveSalarySet && !decrypted && (
         <button
           className="btn-gold"
           style={{ width: "100%" }}
           onClick={decrypt}
-          disabled={decrypting || fhevmLoading || !handle}
+          disabled={decrypting || fhevmLoading || (!SIM && !handle)}
         >
           {fhevmLoading ? "Loading fhEVM…" : decrypting ? <><Spinner size={12} /> Decrypting…</> : "Decrypt My Salary"}
         </button>
@@ -492,7 +499,7 @@ function BalanceCard({ address }: { address: `0x${string}` }) {
     if (!handle) return;
     setDecrypting(true); setError(null);
     try {
-      const val = await decryptSalary(handle as bigint, PAY_TOKEN_ADDRESS);
+      const val = await decryptSalary(BigInt(handle as string), PAY_TOKEN_ADDRESS);
       setDecrypted(formatCUSD(val));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Decryption failed");

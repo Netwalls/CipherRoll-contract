@@ -10,7 +10,9 @@ import {
   FACTORY_ADDRESS, FACTORY_ABI, PAYROLL_ABI,
   EmpStatus, generateInviteCode, hashInviteCode,
 } from "@/lib/contracts";
-import { useFhevm } from "@/hooks/useFhevm";
+import { useFhevm, simSaveSalary, simHasSalary } from "@/hooks/useFhevm";
+
+const SIM = process.env.NEXT_PUBLIC_SIM === "true";
 
 export function EmployerApp({ onBack }: { onBack: () => void }) {
   const { address } = useAccount();
@@ -295,13 +297,15 @@ function EmployeeRow({ addr, payrollAddress, ownerAddress, onUpdate }: {
   const [encrypting, setEncrypting] = useState(false);
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
   const [error, setError] = useState<string | null>(null);
-  const { isLoading: confirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+  const isSimTx = txHash?.startsWith("0xsimulated");
+  const { isLoading: confirming, isSuccess } = useWaitForTransactionReceipt({ hash: isSimTx ? undefined : txHash });
 
   if (!info) return (
     <div style={{ height: 54, borderRadius: 10, background: "#111", border: "1px solid rgba(255,255,255,0.04)", animation: "pulse 1.5s ease-in-out infinite" }} />
   );
 
-  const [status, salarySet, , lastPaidAt, totalPayments, empName, dept] = info as [number, boolean, bigint, bigint, bigint, string, string];
+  const [status, onChainSalarySet, , lastPaidAt, totalPayments, empName, dept] = info as [number, boolean, bigint, bigint, bigint, string, string];
+  const salarySet = onChainSalarySet || (SIM && simHasSalary(payrollAddress, addr));
   const chipClass = status === EmpStatus.Active ? "chip chip-green" : status === EmpStatus.Pending ? "chip chip-amber" : "chip chip-red";
   const statusLabel = ["—", "Pending", "Active", "Paused"][status] ?? "Unknown";
   const initial = ((empName || addr)[0] ?? "?").toUpperCase();
@@ -310,8 +314,20 @@ function EmployeeRow({ addr, payrollAddress, ownerAddress, onUpdate }: {
     if (!salaryVal) return;
     setError(null); setEncrypting(true);
     try {
-      const { handle, inputProof } = await encryptSalary(parseFloat(salaryVal), payrollAddress, ownerAddress);
+      const result = await encryptSalary(parseFloat(salaryVal), payrollAddress, ownerAddress);
+      const { handle, inputProof } = result;
       setEncrypting(false);
+
+      if (SIM) {
+        // Simulation mode: persist salary locally, skip on-chain write
+        const units = result._simUnits ?? BigInt(Math.round(parseFloat(salaryVal) * 1_000_000));
+        simSaveSalary(payrollAddress, addr, units);
+        setTxHash("0xsimulated000000000000000000000000000000000000000000000000000000000000" as `0x${string}`);
+        setShowSalary(false); setSalaryVal("");
+        setTimeout(() => { refetch(); onUpdate(); }, 500);
+        return;
+      }
+
       const hash = await writeContractAsync({
         address: payrollAddress, abi: PAYROLL_ABI, functionName: "setSalary",
         args: [addr, handle, inputProof], gas: 2_000_000n,

@@ -52,9 +52,9 @@ export const PAYROLL_ABI = [
       { name: "department",    type: "string" },
     ],
   },
-  { name: "getSalaryHandle",        type: "function", stateMutability: "view", inputs: [{ name: "addr", type: "address" }], outputs: [{ type: "uint256" }] },
-  { name: "getMySalaryHandle",      type: "function", stateMutability: "view", inputs: [],                                  outputs: [{ type: "uint256" }] },
-  { name: "getPayrollBalanceHandle",type: "function", stateMutability: "view", inputs: [],                                  outputs: [{ type: "uint256" }] },
+  { name: "getSalaryHandle",        type: "function", stateMutability: "view", inputs: [{ name: "addr", type: "address" }], outputs: [{ type: "bytes32" }] },
+  { name: "getMySalaryHandle",      type: "function", stateMutability: "view", inputs: [],                                  outputs: [{ type: "bytes32" }] },
+  { name: "getPayrollBalanceHandle",type: "function", stateMutability: "view", inputs: [],                                  outputs: [{ type: "bytes32" }] },
   { name: "getInviteList",          type: "function", stateMutability: "view", inputs: [],                                  outputs: [{ type: "bytes32[]" }] },
   {
     name: "getInvite", type: "function", stateMutability: "view",
@@ -81,17 +81,17 @@ export const PAYROLL_ABI = [
 
 export const PAY_TOKEN_ABI = [
   { name: "symbol",             type: "function", stateMutability: "view", inputs: [],                                     outputs: [{ type: "string" }] },
-  { name: "encryptedBalanceOf", type: "function", stateMutability: "view", inputs: [{ name: "account", type: "address" }], outputs: [{ type: "uint256" }] },
+  { name: "encryptedBalanceOf", type: "function", stateMutability: "view", inputs: [{ name: "account", type: "address" }], outputs: [{ type: "bytes32" }] },
 ] as const;
 
 // ─────────────────────────────────────────────
-//  fhEVM Sepolia config (from on-chain deploy)
+//  fhEVM Sepolia config — new relayer deployment
 // ─────────────────────────────────────────────
 export const FHEVM_CONFIG = {
-  kmsContractAddress:  "0x9D6891A6240D6130c54ae243d8005063D05fE14b" as `0x${string}`,
-  aclContractAddress:  "0xFee8407e2f5e3Ee68ad77cAE98c434e637f516e5" as `0x${string}`,
+  kmsContractAddress:  "0xbE0E383937d564D7FF0BC3b46c51f0bF8d5C311A" as `0x${string}`,
+  aclContractAddress:  "0xf0Ffdc93b7E186bC2f8CB3dAA75D86d1930A433D" as `0x${string}`,
   chainId: 11155111,
-  gatewayUrl: process.env.NEXT_PUBLIC_GATEWAY_URL || "https://gateway.sepolia.zama.ai",
+  relayerUrl: process.env.NEXT_PUBLIC_RELAYER_URL || "https://relayer.testnet.zama.org/v1/",
 };
 
 // ─────────────────────────────────────────────

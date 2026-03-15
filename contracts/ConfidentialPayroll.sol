@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "fhevm/lib/TFHE.sol";
-import { SepoliaZamaFHEVMConfig } from "fhevm/config/ZamaFHEVMConfig.sol";
+import { FHE, euint64, externalEuint64 } from "@fhevm/solidity/lib/FHE.sol";
+import { ZamaEthereumConfig } from "@fhevm/solidity/config/ZamaConfig.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./ConfidentialPayToken.sol";
@@ -22,9 +22,9 @@ interface ICipherRollFactory {
  *   2. employee.claimInvite(code) — registers their wallet
  *   3. employer.setSalary(addr, encSalary, proof) — activates employee
  *   4. employer.executePayroll() — pays everyone with encrypted transfers
- *   5. employee.getMySalaryHandle() + fhevmjs reencrypt → decrypts locally
+ *   5. employee.getMySalaryHandle() + relayer reencrypt → decrypts locally
  */
-contract ConfidentialPayroll is SepoliaZamaFHEVMConfig, Ownable, ReentrancyGuard {
+contract ConfidentialPayroll is ZamaEthereumConfig, Ownable, ReentrancyGuard {
 
     enum Status { None, Pending, Active, Inactive }
 
@@ -125,12 +125,6 @@ contract ConfidentialPayroll is SepoliaZamaFHEVMConfig, Ownable, ReentrancyGuard
     //  Invite creation
     // ─────────────────────────────────────────────
 
-    /**
-     * @notice Create an invite for a future employee.
-     * @param codeHash   keccak256(abi.encodePacked(bytes32Code)) — computed by frontend
-     * @param name       Employee display name
-     * @param department Department
-     */
     function createInvite(
         bytes32 codeHash,
         string calldata name,
@@ -147,7 +141,6 @@ contract ConfidentialPayroll is SepoliaZamaFHEVMConfig, Ownable, ReentrancyGuard
         });
         _inviteList.push(codeHash);
 
-        // Register globally in factory so employees can find this contract
         factory.registerInvite(codeHash);
 
         emit InviteCreated(codeHash, name, department, block.timestamp);
@@ -157,9 +150,6 @@ contract ConfidentialPayroll is SepoliaZamaFHEVMConfig, Ownable, ReentrancyGuard
     //  Invite claiming (employee)
     // ─────────────────────────────────────────────
 
-    /**
-     * @notice Employee claims their invite by submitting the plaintext bytes32 code.
-     */
     function claimInvite(bytes32 code) external {
         bytes32 codeHash = keccak256(abi.encodePacked(code));
         InviteRecord storage inv = _invites[codeHash];
@@ -173,7 +163,7 @@ contract ConfidentialPayroll is SepoliaZamaFHEVMConfig, Ownable, ReentrancyGuard
         _employees[msg.sender] = Employee({
             status:           Status.Pending,
             salarySet:        false,
-            encryptedSalary:  TFHE.asEuint64(0),
+            encryptedSalary:  FHE.asEuint64(0),
             claimedAt:        block.timestamp,
             lastPaidAt:       0,
             totalPayments:    0,
@@ -196,21 +186,21 @@ contract ConfidentialPayroll is SepoliaZamaFHEVMConfig, Ownable, ReentrancyGuard
      */
     function setSalary(
         address employeeAddress,
-        einput encryptedSalary,
+        externalEuint64 encryptedSalary,
         bytes calldata inputProof
     ) external onlyOwner {
         if (!_isEmployee[employeeAddress]) revert NotEmployee();
         Employee storage emp = _employees[employeeAddress];
         require(emp.status == Status.Pending || emp.status == Status.Active, "Wrong status");
 
-        euint64 salary = TFHE.asEuint64(encryptedSalary, inputProof);
+        euint64 salary = FHE.fromExternal(encryptedSalary, inputProof);
         emp.encryptedSalary = salary;
         emp.salarySet = true;
         if (emp.status == Status.Pending) emp.status = Status.Active;
 
-        TFHE.allowThis(salary);
-        TFHE.allow(salary, owner());
-        TFHE.allow(salary, employeeAddress);
+        FHE.allowThis(salary);
+        FHE.allow(salary, owner());
+        FHE.allow(salary, employeeAddress);
 
         emit SalarySet(employeeAddress, block.timestamp);
     }
@@ -251,7 +241,7 @@ contract ConfidentialPayroll is SepoliaZamaFHEVMConfig, Ownable, ReentrancyGuard
             if (!emp.salarySet) continue;
             if (lastPaidCycle[addr] == cycle) continue;
 
-            paymentToken.transfer(addr, emp.encryptedSalary);
+            paymentToken.payEmployee(address(this), addr, emp.encryptedSalary);
             emp.lastPaidAt = block.timestamp;
             emp.totalPayments += 1;
             lastPaidCycle[addr] = cycle;
@@ -269,7 +259,7 @@ contract ConfidentialPayroll is SepoliaZamaFHEVMConfig, Ownable, ReentrancyGuard
         if (emp.status != Status.Active) revert NotActive();
         if (!emp.salarySet) revert SalaryNotSet();
 
-        paymentToken.transfer(addr, emp.encryptedSalary);
+        paymentToken.payEmployee(address(this), addr, emp.encryptedSalary);
         emp.lastPaidAt = block.timestamp;
         emp.totalPayments += 1;
         emit PaymentMade(addr, currentCycle, block.timestamp);
@@ -279,19 +269,19 @@ contract ConfidentialPayroll is SepoliaZamaFHEVMConfig, Ownable, ReentrancyGuard
     //  Views — salary handles
     // ─────────────────────────────────────────────
 
-    function getSalaryHandle(address addr) external view returns (uint256) {
+    function getSalaryHandle(address addr) external view returns (bytes32) {
         if (msg.sender != owner() && msg.sender != addr) revert Unauthorized();
         if (!_isEmployee[addr]) revert NotEmployee();
         return euint64.unwrap(_employees[addr].encryptedSalary);
     }
 
-    function getMySalaryHandle() external view returns (uint256) {
+    function getMySalaryHandle() external view returns (bytes32) {
         if (!_isEmployee[msg.sender]) revert NotEmployee();
         return euint64.unwrap(_employees[msg.sender].encryptedSalary);
     }
 
     // ─────────────────────────────────────────────
-    //  Views — employee info (public for claimed check)
+    //  Views — employee info
     // ─────────────────────────────────────────────
 
     function getEmployeeInfo(address addr) external view returns (
@@ -330,7 +320,6 @@ contract ConfidentialPayroll is SepoliaZamaFHEVMConfig, Ownable, ReentrancyGuard
         return n;
     }
 
-    // getInvite is public so employee can verify before claiming
     function getInvite(bytes32 codeHash) external view returns (
         bool exists, address claimedBy, string memory invName,
         string memory department, uint256 createdAt
@@ -343,7 +332,7 @@ contract ConfidentialPayroll is SepoliaZamaFHEVMConfig, Ownable, ReentrancyGuard
         return _inviteList;
     }
 
-    function getPayrollBalanceHandle() external view onlyOwner returns (uint256) {
+    function getPayrollBalanceHandle() external view onlyOwner returns (bytes32) {
         return euint64.unwrap(paymentToken.balanceOf(address(this)));
     }
 }

@@ -5,12 +5,12 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 const SEPOLIA_RPC_URL =
-  process.env.SEPOLIA_RPC_URL || "https://eth-sepolia.public.blastapi.io";
+  process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com";
 const PRIVATE_KEY = process.env.PRIVATE_KEY || "";
 
 const config: HardhatUserConfig = {
   solidity: {
-    version: "0.8.24",
+    version: "0.8.27",
     settings: {
       optimizer: {
         enabled: true,

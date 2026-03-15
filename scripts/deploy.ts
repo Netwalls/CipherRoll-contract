@@ -48,6 +48,7 @@ async function main() {
   const envContent = [
     `NEXT_PUBLIC_FACTORY_ADDRESS=${factoryAddress}`,
     `NEXT_PUBLIC_PAY_TOKEN_ADDRESS=${payTokenAddress}`,
+    `NEXT_PUBLIC_RELAYER_URL=https://relayer.testnet.zama.org/v1`,
   ].join("\n") + "\n";
   fs.writeFileSync(path.join(__dirname, "../frontend/.env.local"), envContent);
 
